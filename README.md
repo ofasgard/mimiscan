@@ -1,6 +1,6 @@
 # mimiscan
 
-A proof-of-concept partial Mimikatz implementation written for Frida. Written to accompany my blog "Dumping Lsass with... Frida?", which you can find [here](https://please.donothack.us/blogs/mimikatz-frida-part-2). Meant to be used in conjunction with `frida-server`.
+A proof-of-concept partial Mimikatz implementation written for Frida. Written to accompany my blog "Dumping Lsass with... Frida?", which you can find [here](https://please.donothack.us/blogs/mimikatz-frida-part-1). Meant to be used in conjunction with `frida-server`.
 
 Usage:
 
