@@ -18,12 +18,14 @@ function findDereferencedAddress(ptr, offset) {
 	
 	// Sanity check for the lea instruction
 	if (targetInstruction.toString().includes("lea ")) {
-		// The first 3 bytes of the instruction are the opcodes, so skip those.
-		var addrSize = targetInstruction.size - 3;
-		// Extract the address being dereferenced by the LEA instruction, which is a %rip offset.
-		var ripOffsetByteArray = targetAddress.add(3).readByteArray(addrSize);
-		// Now we convert the byte array (i.e. "ef be ad de 00") to an address ("0xdeadbeef").
-		var ripOffsetInt = new Uint32Array(ripOffsetByteArray)[0];
+		//Frida parses the instruction for us and separates out operands - no janky offset math required :)
+		var operand = targetInstruction.operands[1];
+		//Sanity check to make sure it's a RIP-relative offset, not some other register.
+		if (operand["value"]["base"] !== "rip") {
+			return null;
+		}
+		//Get the offset.
+		var ripOffsetInt = operand["value"]["disp"];
 		var ripOffset = new NativePointer(ripOffsetInt);
 		// Finally, we need to convert the offset into an actual address.
 		// To do this, find what RIP will be just after our target instruction, then add the offset.
