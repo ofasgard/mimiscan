@@ -7,3 +7,4 @@ Usage:
 ```bash
 $ python3 MimiScan.py 192.168.1.241
 ```
+**Note**: This version of the project is the one referenced in the original blog. For the most recent updates and improvements to the tool, check out the main branch of this repository.
